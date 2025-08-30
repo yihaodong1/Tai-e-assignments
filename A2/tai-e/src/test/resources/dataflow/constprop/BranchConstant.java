@@ -19,4 +19,15 @@ class BranchConstant {
         }
         int y = x;
     }
+
+    void constant3(boolean b) {
+        int x;
+        int a = 1;
+        int c = 2
+        if(a!=0) {
+            x = 1;
+        }else {
+            x = 1;
+        }
+    }
 }
