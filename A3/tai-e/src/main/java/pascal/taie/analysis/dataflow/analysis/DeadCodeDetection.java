@@ -33,21 +33,13 @@ import pascal.taie.analysis.graph.cfg.CFGBuilder;
 import pascal.taie.analysis.graph.cfg.Edge;
 import pascal.taie.config.AnalysisConfig;
 import pascal.taie.ir.IR;
-import pascal.taie.ir.exp.ArithmeticExp;
-import pascal.taie.ir.exp.ArrayAccess;
-import pascal.taie.ir.exp.CastExp;
-import pascal.taie.ir.exp.FieldAccess;
-import pascal.taie.ir.exp.NewExp;
-import pascal.taie.ir.exp.RValue;
-import pascal.taie.ir.exp.Var;
+import pascal.taie.ir.exp.*;
 import pascal.taie.ir.stmt.AssignStmt;
 import pascal.taie.ir.stmt.If;
 import pascal.taie.ir.stmt.Stmt;
 import pascal.taie.ir.stmt.SwitchStmt;
 
-import java.util.Comparator;
-import java.util.Set;
-import java.util.TreeSet;
+import java.util.*;
 
 public class DeadCodeDetection extends MethodAnalysis {
 
@@ -71,6 +63,83 @@ public class DeadCodeDetection extends MethodAnalysis {
         Set<Stmt> deadCode = new TreeSet<>(Comparator.comparing(Stmt::getIndex));
         // TODO - finish me
         // Your task is to recognize dead code in ir and add it to deadCode
+        Stmt entry = cfg.getEntry();
+        Queue<Stmt> queue = new LinkedList<>();
+        queue.add(entry);
+        Set<Stmt> traveled = new HashSet<>();
+        while (!queue.isEmpty()) {
+            Stmt stmt = queue.poll();
+            traveled.add(stmt);
+            CPFact fact = constants.getInFact(stmt);
+            cfg.getOutEdgesOf(stmt).forEach(edge -> {
+                if(!traveled.contains(edge.getTarget())) {
+                    switch (edge.getKind()) {
+                        case GOTO, ENTRY, FALL_THROUGH, RETURN -> {
+
+                            queue.add(edge.getTarget());
+                        }
+                        case IF_TRUE -> {
+                            ConditionExp c = ((If) stmt).getCondition();
+                            Value val = ConstantPropagation.evaluate(c, fact);
+                            if(val.isConstant() && val.getConstant() == 1)
+                                queue.add(edge.getTarget());
+                            else if(!val.isConstant())
+                                // not a constant, but maybe true
+                                queue.add(edge.getTarget());
+                        }
+                        case IF_FALSE -> {
+                            ConditionExp c = ((If) stmt).getCondition();
+                            Value val = ConstantPropagation.evaluate(c, fact);
+                            if(val.isConstant() && val.getConstant() == 0)
+                                queue.add(edge.getTarget());
+                            else if(!val.isConstant())
+                                // not a constant, but maybe true
+                                queue.add(edge.getTarget());
+                        }
+                        case SWITCH_CASE -> {
+                            Var var = ((SwitchStmt) stmt).getVar();
+                            Value val = ConstantPropagation.evaluate(var, fact);
+                            if (val.isConstant()) {
+                                int c = val.getConstant();
+                                int caseval = edge.getCaseValue();
+                                if (c == caseval) {
+                                    queue.add(edge.getTarget());
+                                }
+                            }else // when var not constant, maybe match
+                                queue.add(edge.getTarget());
+
+                        }
+                        case SWITCH_DEFAULT -> {
+                            List<Integer> list = ((SwitchStmt)stmt).getCaseValues();
+                            Var var = ((SwitchStmt) stmt).getVar();
+                            Value val = ConstantPropagation.evaluate(var, fact);
+                            if(!val.isConstant() || !list.contains(val.getConstant())) {
+                                queue.add(edge.getTarget());
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        for (Stmt stmt : cfg.getNodes()) {
+            if(!traveled.contains(stmt) && !cfg.isExit(stmt)) {
+                deadCode.add(stmt);
+            }
+        }
+        for(Stmt node : cfg.getNodes()) {
+            if(node instanceof AssignStmt) {
+                SetFact<Var>out = liveVars.getOutFact(node);
+                if(out != null) {
+                    LValue l = ((AssignStmt<?, ?>) node).getLValue();
+                    RValue r = ((AssignStmt<?, ?>) node).getRValue();
+                    if(l instanceof Var) {
+                        if(!out.contains((Var)l) && hasNoSideEffect(r)){
+                            deadCode.add(node);
+                        }
+                    }
+                }
+            }
+        }
         return deadCode;
     }
 
