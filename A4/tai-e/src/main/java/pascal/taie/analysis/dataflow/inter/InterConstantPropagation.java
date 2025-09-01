@@ -86,7 +86,9 @@ public class InterConstantPropagation extends
 //        stmt.getDef().ifPresent(lValue -> {
 //            copy.remove((Var) lValue);
 //        });
-
+        // could directly copy as the normal edge
+        // would kill the var which will hold the
+        // return val of invoke
         return out.copyFrom(in);  // copy复制给out。copy和in相比，有更新，返回true；反之返回false
 
     }
